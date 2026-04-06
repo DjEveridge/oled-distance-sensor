@@ -23,6 +23,15 @@ unsigned long previousTime = 0;
 bool buzzerState = false;
 byte buzzerDelay = 50;
 int radarMagnitude;
+bool trackingMode = false;
+//Used to switch between manual and auto
+bool lastButtonState = HIGH;
+bool currentButtonState;
+//Auto tracking variables
+int trackingDirection = 1;
+int servoSpeed = 4;
+int closestDist = 999;
+int closestAngle = 0;
 
 //Instantiate compnent instances
 U8G2_SSD1309_128X64_NONAME0_1_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
@@ -34,6 +43,7 @@ void drawRadar();
 void updateOLED();
 void updateServoPos();
 void updateBuzzer();
+void autoTrack();
 
 
 void setup() {
@@ -55,8 +65,15 @@ void loop() {
   int xInput = analogRead(xPin);//Get Joystick x input
   uSensorDist = usSensor.Distance();
 
+  currentButtonState = digitalRead(swPin);
+
+  //Detect button press
+  if(lastButtonState == HIGH && currentButtonState == LOW) trackingMode = !trackingMode;
+  lastButtonState = currentButtonState;
+
   //Update each component using functional programming
-  updateServoPos(xInput);
+  if(!trackingMode) updateServoPos(xInput);
+  if(trackingMode) autoTrack();
   updateOLED();
   updateBuzzer();
 
@@ -66,7 +83,7 @@ void loop() {
 void updateOLED() {
   char buffer[20];
   sprintf(buffer, "%d", uSensorDist);
-
+  //Set min,max readings
   if(uSensorDist < minDist) {
     minDist = uSensorDist;
   }
@@ -74,6 +91,7 @@ void updateOLED() {
     maxDist = uSensorDist;
   }
 
+  //begin OLED writing
   u8g2.firstPage();
   do {
     u8g2.setFont(u8g2_font_ncenB08_tr);
@@ -82,7 +100,7 @@ void updateOLED() {
     u8g2.drawStr(20, 20, "cm" );
 
     u8g2.setFont(u8g2_font_5x8_tr);
-
+    //write min, max readings
     char minDistBuffer[20];
     sprintf(minDistBuffer, "Min: %dcm", minDist);
     u8g2.drawStr(0, 60, minDistBuffer);
@@ -90,6 +108,12 @@ void updateOLED() {
     char maxDistBuffer[20];
     sprintf(maxDistBuffer, "Max: %dcm", maxDist);
     u8g2.drawStr(80, 60, maxDistBuffer);
+    //write current mode
+    u8g2.drawStr(
+      0,
+      48,
+      trackingMode ? "Auto-Track" : "Manual"
+    );
 
     drawRadar();
 
@@ -97,6 +121,7 @@ void updateOLED() {
 }
 
 void drawRadar() {
+  //draw radar arc one pixel at a time
   for(int angle = 0; angle <= 180; angle += 5) {
   float rad = radians(angle);
   int x = 80 + 30*cos(rad);
@@ -104,27 +129,30 @@ void drawRadar() {
   u8g2.drawPixel(x,y);
   }
 
+  //clamp distance reading for radar line
   if(uSensorDist > 100) {
     radarMagnitude = 100;
   } else {
     radarMagnitude = uSensorDist;
   }
 
+  //draw radar line - size is proportional to current distance
   u8g2.drawLine(80, 40,
     80 + 30*cos(radians(servoPos)) * radarMagnitude / 100,
     40 - 30 * sin(radians(servoPos)) * radarMagnitude / 100
   );
 
+  //draw blip at end of line to signal object
   int blipX = 80 + 30*cos(radians(servoPos)) * radarMagnitude / 100;
   int blipY = 40 - 30 * sin(radians(servoPos)) * radarMagnitude / 100;
   u8g2.drawCircle(blipX, blipY, 2);
 }
 
 void updateServoPos(int x) {
-  if(x > 600) servoPos-= 3;
-  if(x < 400) servoPos+= 3;
+  if(x > 600) servoPos-= servoSpeed;
+  if(x < 400) servoPos+= servoSpeed;
 
-
+  //clamp servo position
   if (servoPos > 180) {
     servoPos = 180;
   }
@@ -137,23 +165,48 @@ void updateServoPos(int x) {
 
 void updateBuzzer() {
   unsigned long currentTime = millis();
-  if(uSensorDist < 5) {
-    buzzerDelay = 5;
-  } else if (uSensorDist < 10) {
-    buzzerDelay = 10;
-  } else if (uSensorDist < 25) {
-    buzzerDelay = 50;
-  } else if (uSensorDist < 50) {
-    buzzerDelay = 100;
+  if(uSensorDist < 20) {
+    tone(buzzerPin, 1000);
   } else {
-    buzzerDelay = 0;
+    noTone(buzzerPin);
   }
 
-  if((currentTime - previousTime >= buzzerDelay) && buzzerDelay != 0) {
-    previousTime = currentTime;
-    buzzerState = !buzzerState;
-    digitalWrite(buzzerPin, buzzerState);
-  } else {
-    digitalWrite(buzzerPin, LOW);
+ 
+}
+
+int getStableDistance() {
+  int sum = 0;
+  int count = 3;
+
+  for(int i = 0; i < count; i++) {
+    sum += usSensor.Distance();
+    delay(5);
   }
+  return sum / count;
+}
+
+void autoTrack() {
+  servoPos += trackingDirection * servoSpeed;
+  if(servoPos > 180) {
+    servoPos = 180;
+    trackingDirection = -1;
+  }
+  if(servoPos < 0) {
+    servoPos = 0;
+    trackingDirection = 1;
+
+    //New sweep started - Reset tracking
+    closestDist = 999;
+
+  }
+    
+    if(uSensorDist > 2 && uSensorDist < closestDist && uSensorDist < 150) {
+      closestDist = uSensorDist;
+      closestAngle = servoPos;
+    }
+  if(closestDist < 999) {
+    myServo.write(closestAngle);
+    servoPos = closestAngle;
+  }
+
 }
