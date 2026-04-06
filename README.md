@@ -10,6 +10,9 @@
 ## Wiring
 ![Wiring Diagram](oled-distance-sensor-wiring.png)
 
+## Demo Video
+https://youtu.be/N69RERCU6C0
+
 ## Future Improvements
 - Automatic Radar Sweep
 - Variable speed for radar rotation
