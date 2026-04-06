@@ -6,6 +6,7 @@
     - Minimum and Maximum distances
     - Radar visualization
 - The buzzer changes speed based on how close objects are
+- Auto Tracking Mode that can be toggled by pressing down joystick
 
 ## Wiring
 ![Wiring Diagram](oled-distance-sensor-wiring.png)
